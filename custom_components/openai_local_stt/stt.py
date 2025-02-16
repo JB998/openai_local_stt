@@ -143,8 +143,7 @@ class LocalSTTProvider(Provider):
                     )
 
             except httpx.HTTPStatusError as e:
-                _LOGGER.error("Error during transcription: %s", e)
+                _LOGGER.exception("Error during transcription:")
             except Exception as e:
-                _LOGGER.error("Unexpected error: %s", e)
-
+                _LOGGER.exception("Unexpected error:")
         return SpeechResult("", SpeechResultState.ERROR)
