@@ -6,6 +6,6 @@
 "whisper",
 "async_timeout",
 "voluptuous"
-"],
+],
   "version": "0.0.1"
 }
