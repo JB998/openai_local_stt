@@ -129,6 +129,7 @@ class LocalSTTProvider(Provider):
         # Send audio to the FastAPI server for transcription
         async with httpx.AsyncClient() as client:
             try:
+                _LOGGER.debug("Log Test")
                 response = await client.post(self._api_url, files=files)
                 _LOGGER.debug(response.text)
                 response.raise_for_status()  # Will raise an exception for 4xx/5xx errors
