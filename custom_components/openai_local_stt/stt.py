@@ -130,9 +130,10 @@ class LocalSTTProvider(Provider):
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(self._api_url, files=files)
+                _LOGGER.debug(response.text)
                 response.raise_for_status()  # Will raise an exception for 4xx/5xx errors
                 transcription = response.json()  # Assuming JSON response from FastAPI
-                print(transcription)
+                _LOGGER.debug(transcription)
                 # Return transcription result
                 if 'text' in transcription:
                     return SpeechResult(
