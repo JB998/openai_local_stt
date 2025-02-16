@@ -2,11 +2,7 @@
   "domain": "openai_local_stt",
   "name": "OpenAI Local Whisper API",
   "iot_class": "cloud_polling",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "requirements": [
-    "httpx",
-    "async-timeout",
-    "voluptuous",
-    "homeassistant"
   ]
 }
