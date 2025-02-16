@@ -1,4 +1,7 @@
+from __future__ import annotations
 import logging
+import os
+import wave
 import io
 import async_timeout
 import voluptuous as vol
@@ -14,49 +17,61 @@ from homeassistant.components.stt import (
     SpeechResult,
     SpeechResultState,
 )
+
 import homeassistant.helpers.config_validation as cv
-import aiohttp
+import whisper
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_API_URL = "http://127.0.0.1:8000/transcribe"  # Local API URL
-DEFAULT_MODEL = "base"  # The model you want to run locally
+CONF_API_KEY = "api_key"
+CONF_API_URL = "api_url"
+CONF_MODEL = "model"
+CONF_PROMPT = "prompt"
+CONF_TEMP = "temperature"
+
+DEFAULT_MODEL = "base"  # Use 'base' or another model like 'small', 'medium', or 'large'
 DEFAULT_PROMPT = ""
 DEFAULT_TEMP = 0
 
-SUPPORTED_LANGUAGES = [
-    "en", "es", "fr", "de", "zh",  # Add other languages as needed
+SUPPORTED_MODELS = [
+    "base", "small", "medium", "large",  # Adjust for local models
 ]
 
+SUPPORTED_LANGUAGES = [
+    "af", "ar", "hy", "az", "be", "bs", "bg", "ca", "zh", "hr", "cs", "da", "nl",
+    "en", "et", "fi", "fr", "gl", "de", "el", "he", "hi", "hu", "is", "id", "it",
+    "ja", "kn", "kk", "ko", "lv", "lt", "mk", "ms", "mr", "mi", "ne", "no", "fa", 
+    "pl", "pt", "ro", "ru", "sr", "sk", "sl", "es", "sw", "sv", "tl", "ta", "th", 
+    "tr", "uk", "ur", "vi", "cy",
+]
+
+MODEL_SCHEMA = vol.In(SUPPORTED_MODELS)
+
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend({
-    vol.Optional("api_key"): cv.string,
-    vol.Optional("model", default=DEFAULT_MODEL): cv.string,
-    vol.Optional("prompt", default=DEFAULT_PROMPT): cv.string,
-    vol.Optional("temperature", default=DEFAULT_TEMP): cv.positive_int,
+    vol.Optional(CONF_MODEL, default=DEFAULT_MODEL): cv.string,
+    vol.Optional(CONF_PROMPT, default=DEFAULT_PROMPT): cv.string,
+    vol.Optional(CONF_TEMP, default=DEFAULT_TEMP): cv.positive_int,
 })
 
 
 async def async_get_engine(hass, config, discovery_info=None):
-    """Set up the local Whisper STT component."""
-    api_url = config.get("api_key", DEFAULT_API_URL)
-    model = config.get("model", DEFAULT_MODEL)
-    prompt = config.get("prompt", DEFAULT_PROMPT)
-    temperature = config.get("temperature", DEFAULT_TEMP)
-    temperature = config.get("temperature", DEFAULT_TEMP)
-    return LocalWhisperSTTProvider(hass, model, prompt, temperature, api_url)
+    """Set up the OpenAI STT component."""
+    model = config.get(CONF_MODEL, DEFAULT_MODEL)
+    prompt = config.get(CONF_PROMPT, DEFAULT_PROMPT)
+    temperature = config.get(CONF_TEMP, DEFAULT_TEMP)
+    return LocalWhisperSTTProvider(hass, model, prompt, temperature)
 
 
 class LocalWhisperSTTProvider(Provider):
     """The Local Whisper STT provider."""
 
-    def __init__(self, hass, model, prompt, temperature, api_url) -> None:
+    def __init__(self, hass, model, prompt, temperature) -> None:
         """Init Local Whisper STT service."""
         self.hass = hass
         self.name = "Local Whisper STT"
 
-        # Set up the local API URL and parameters
-        self._api_url = api_url
-        self._model = model
+        # Load the Whisper model locally
+        self._model = whisper.load_model(model)
         self._prompt = prompt
         self._temperature = temperature
 
@@ -93,24 +108,26 @@ class LocalWhisperSTTProvider(Provider):
     async def async_process_audio_stream(
         self, metadata: SpeechMetadata, stream: AsyncIterable[bytes]
     ) -> SpeechResult:
-        """Process the incoming audio stream."""
-        # Collect data from the audio stream
+        # Collect data
         audio_data = b""
         async for chunk in stream:
             audio_data += chunk
 
-        # Convert audio data to a BytesIO stream (simulating a file)
-        wav_stream = io.BytesIO(audio_data)
+        # Convert audio data to the correct format
+        wav_stream = io.BytesIO()
 
-        # Prepare the file for the API call
-        file = ("audio.wav", wav_stream, "audio/wav")
+        with wave.open(wav_stream, 'wb') as wf:
+            wf.setnchannels(metadata.channel)
+            wf.setsampwidth(metadata.bit_rate // 8)
+            wf.setframerate(metadata.sample_rate)
+            wf.writeframes(audio_data)
 
-        # Call the local API to transcribe the audio
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self._api_url, data={"file": file}) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if result.get("text"):
-                        return SpeechResult(result["text"], SpeechResultState.SUCCESS)
-                _LOGGER.error("Failed to transcribe audio.")
-                return SpeechResult("", SpeechResultState.ERROR)
+        # Use Whisper model to transcribe audio
+        wav_stream.seek(0)  # Reset stream to the beginning for Whisper
+        audio = whisper.load_audio(wav_stream)
+        result = self._model.transcribe(audio, language=metadata.language)
+
+        if result['text']:
+            return SpeechResult(result['text'], SpeechResultState.SUCCESS)
+        else:
+            return SpeechResult("", SpeechResultState.ERROR)
