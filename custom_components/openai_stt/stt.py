@@ -1,11 +1,14 @@
 from __future__ import annotations
+
 import logging
 import os
+from collections.abc import AsyncIterable
 import wave
 import io
+import httpx  # To make HTTP requests to the local FastAPI endpoint
+
 import async_timeout
 import voluptuous as vol
-from collections.abc import AsyncIterable
 from homeassistant.components.stt import (
     AudioBitRates,
     AudioChannels,
@@ -19,35 +22,31 @@ from homeassistant.components.stt import (
 )
 
 import homeassistant.helpers.config_validation as cv
-import whisper
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_API_KEY = "api_key"
 CONF_API_URL = "api_url"
 CONF_MODEL = "model"
 CONF_PROMPT = "prompt"
 CONF_TEMP = "temperature"
 
-DEFAULT_MODEL = "base"  # Use 'base' or another model like 'small', 'medium', or 'large'
+DEFAULT_API_URL = "http://localhost:8000/transcribe"  # Local FastAPI endpoint
+DEFAULT_MODEL = "whisper-1"
 DEFAULT_PROMPT = ""
 DEFAULT_TEMP = 0
 
 SUPPORTED_MODELS = [
-    "base", "small", "medium", "large",  # Adjust for local models
+    "whisper-1",
 ]
 
 SUPPORTED_LANGUAGES = [
-    "af", "ar", "hy", "az", "be", "bs", "bg", "ca", "zh", "hr", "cs", "da", "nl",
-    "en", "et", "fi", "fr", "gl", "de", "el", "he", "hi", "hu", "is", "id", "it",
-    "ja", "kn", "kk", "ko", "lv", "lt", "mk", "ms", "mr", "mi", "ne", "no", "fa", 
-    "pl", "pt", "ro", "ru", "sr", "sk", "sl", "es", "sw", "sv", "tl", "ta", "th", 
-    "tr", "uk", "ur", "vi", "cy",
+    "en",  # Add other languages if needed
 ]
 
 MODEL_SCHEMA = vol.In(SUPPORTED_MODELS)
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend({
+    vol.Optional(CONF_API_URL, default=DEFAULT_API_URL): cv.string,
     vol.Optional(CONF_MODEL, default=DEFAULT_MODEL): cv.string,
     vol.Optional(CONF_PROMPT, default=DEFAULT_PROMPT): cv.string,
     vol.Optional(CONF_TEMP, default=DEFAULT_TEMP): cv.positive_int,
@@ -55,23 +54,24 @@ PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend({
 
 
 async def async_get_engine(hass, config, discovery_info=None):
-    """Set up the OpenAI STT component."""
+    """Set up the local STT component."""
+    api_url = config.get(CONF_API_URL, DEFAULT_API_URL)
     model = config.get(CONF_MODEL, DEFAULT_MODEL)
     prompt = config.get(CONF_PROMPT, DEFAULT_PROMPT)
     temperature = config.get(CONF_TEMP, DEFAULT_TEMP)
-    return LocalWhisperSTTProvider(hass, model, prompt, temperature)
+    return LocalSTTProvider(hass, api_url, model, prompt, temperature)
 
 
-class LocalWhisperSTTProvider(Provider):
-    """The Local Whisper STT provider."""
+class LocalSTTProvider(Provider):
+    """The local STT provider that uses the FastAPI Whisper endpoint."""
 
-    def __init__(self, hass, model, prompt, temperature) -> None:
-        """Init Local Whisper STT service."""
+    def __init__(self, hass, api_url, model, prompt, temperature) -> None:
+        """Init local STT service."""
         self.hass = hass
-        self.name = "Local Whisper STT"
+        self.name = "Local STT"
 
-        # Load the Whisper model locally
-        self._model = whisper.load_model(model)
+        self._api_url = api_url
+        self._model = model
         self._prompt = prompt
         self._temperature = temperature
 
@@ -108,26 +108,41 @@ class LocalWhisperSTTProvider(Provider):
     async def async_process_audio_stream(
         self, metadata: SpeechMetadata, stream: AsyncIterable[bytes]
     ) -> SpeechResult:
-        # Collect data
+        """Process the incoming audio stream."""
+        
+        # Collect data from stream
         audio_data = b""
         async for chunk in stream:
             audio_data += chunk
 
-        # Convert audio data to the correct format
+        # Prepare audio file to send to the FastAPI server
         wav_stream = io.BytesIO()
-
         with wave.open(wav_stream, 'wb') as wf:
             wf.setnchannels(metadata.channel)
             wf.setsampwidth(metadata.bit_rate // 8)
             wf.setframerate(metadata.sample_rate)
             wf.writeframes(audio_data)
 
-        # Use Whisper model to transcribe audio
-        wav_stream.seek(0)  # Reset stream to the beginning for Whisper
-        audio = whisper.load_audio(wav_stream)
-        result = self._model.transcribe(audio, language=metadata.language)
+        wav_stream.seek(0)
+        files = {"audio": ("audio.wav", wav_stream, "audio/wav")}
+        
+        # Send audio to the FastAPI server for transcription
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(self._api_url, files=files)
+                response.raise_for_status()  # Will raise an exception for 4xx/5xx errors
+                transcription = response.json()  # Assuming JSON response from FastAPI
 
-        if result['text']:
-            return SpeechResult(result['text'], SpeechResultState.SUCCESS)
-        else:
-            return SpeechResult("", SpeechResultState.ERROR)
+                # Return transcription result
+                if 'text' in transcription:
+                    return SpeechResult(
+                        transcription['text'],
+                        SpeechResultState.SUCCESS,
+                    )
+
+            except httpx.HTTPStatusError as e:
+                _LOGGER.error("Error during transcription: %s", e)
+            except Exception as e:
+                _LOGGER.error("Unexpected error: %s", e)
+
+        return SpeechResult("", SpeechResultState.ERROR)
