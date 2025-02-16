@@ -40,7 +40,7 @@ SUPPORTED_MODELS = [
 ]
 
 SUPPORTED_LANGUAGES = [
-    "en",  # Add other languages if needed
+    "en", "de"  # Add other languages if needed
 ]
 
 MODEL_SCHEMA = vol.In(SUPPORTED_MODELS)
