@@ -131,7 +131,8 @@ class LocalSTTProvider(Provider):
             try:
                 _LOGGER.debug("Log Test")
                 response = await client.post(self._api_url, files=files)
-                _LOGGER.debug(response.text)
+                _LOGGER.debug("123")
+                _LOGGER.debug(response)
                 response.raise_for_status()  # Will raise an exception for 4xx/5xx errors
                 transcription = response.json()  # Assuming JSON response from FastAPI
                 _LOGGER.debug(transcription)
