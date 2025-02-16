@@ -29,6 +29,7 @@ SUPPORTED_LANGUAGES = [
 ]
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend({
+    vol.Optional("api_key"): cv.string,
     vol.Optional("model", default=DEFAULT_MODEL): cv.string,
     vol.Optional("prompt", default=DEFAULT_PROMPT): cv.string,
     vol.Optional("temperature", default=DEFAULT_TEMP): cv.positive_int,
@@ -37,22 +38,24 @@ PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend({
 
 async def async_get_engine(hass, config, discovery_info=None):
     """Set up the local Whisper STT component."""
+    api_url = config.get("api_key", DEFAULT_API_URL)
     model = config.get("model", DEFAULT_MODEL)
     prompt = config.get("prompt", DEFAULT_PROMPT)
     temperature = config.get("temperature", DEFAULT_TEMP)
-    return LocalWhisperSTTProvider(hass, model, prompt, temperature)
+    temperature = config.get("temperature", DEFAULT_TEMP)
+    return LocalWhisperSTTProvider(hass, model, prompt, temperature, api_url)
 
 
 class LocalWhisperSTTProvider(Provider):
     """The Local Whisper STT provider."""
 
-    def __init__(self, hass, model, prompt, temperature) -> None:
+    def __init__(self, hass, model, prompt, temperature, api_url) -> None:
         """Init Local Whisper STT service."""
         self.hass = hass
         self.name = "Local Whisper STT"
 
         # Set up the local API URL and parameters
-        self._api_url = DEFAULT_API_URL
+        self._api_url = api_url
         self._model = model
         self._prompt = prompt
         self._temperature = temperature
