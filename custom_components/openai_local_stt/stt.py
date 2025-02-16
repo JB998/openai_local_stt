@@ -132,7 +132,7 @@ class LocalSTTProvider(Provider):
                 response = await client.post(self._api_url, files=files)
                 response.raise_for_status()  # Will raise an exception for 4xx/5xx errors
                 transcription = response.json()  # Assuming JSON response from FastAPI
-
+                print(transcription)
                 # Return transcription result
                 if 'text' in transcription:
                     return SpeechResult(
