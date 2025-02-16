@@ -127,7 +127,7 @@ class LocalSTTProvider(Provider):
         files = {"audio": ("audio.wav", wav_stream, "audio/wav")}
         
         # Send audio to the FastAPI server for transcription
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 _LOGGER.debug("Log Test")
                 response = await client.post(self._api_url, files=files)
